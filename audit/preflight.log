@@ -1,0 +1,17 @@
+Core secrets                       MISSING: SECRET_KEY, VOICE_TOOL_SECRET, ADMIN_PASSWORD, CRON_SECRET Blayke
+Public app URL                     PLACEHOLDER: PUBLIC_URL                                        Blayke
+Val's rates                        PLACEHOLDER: rates_confirmed false                             Val
+Val's iCal link                    PLACEHOLDER: VAL_ICS_URL                                       Val
+Booking email address              PLACEHOLDER: VAL_BOOKING_EMAIL                                 Val
+Inbox app password                 PLACEHOLDER: IMAP_USER, IMAP_APP_PASSWORD                      Val
+Email start date                   PLACEHOLDER: EMAIL_START_DATE                                  Blayke
+Twilio number                      PLACEHOLDER: TWILIO_NUMBER                                     Blayke
+Twilio auth token                  PLACEHOLDER: TWILIO_AUTH_TOKEN                                 Blayke
+ElevenLabs voice                   PLACEHOLDER: set up in ElevenLabs                              Blayke
+Where Val's alerts go              PLACEHOLDER: ALERT_VAL                                         Val
+Gmail for sending alerts           PLACEHOLDER: SMTP_USER, SMTP_APP_PASSWORD                      Blayke
+Gig tracker sheet                  PLACEHOLDER: GIG_SHEET_ID, GOOGLE_SERVICE_ACCOUNT_JSON         Blayke
+Clash check                        OFF                                                            Blayke turns on
+Quote approval                     OFF                                                            Blayke turns on
+Email intake                       OFF                                                            Blayke turns on
+Dry run (nothing really sends)     ON                                                             Blayke turns off

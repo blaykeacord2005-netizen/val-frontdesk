@@ -1,0 +1,6 @@
+run at 2026-11-05T18:38:59Z
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+113 passed, 1 warning in 1.86s

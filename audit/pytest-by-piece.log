@@ -1,0 +1,7 @@
+19:33:43Z test_frontdesk.py::TestVoice => 7 passed, 1 warning in 0.14s
+19:33:44Z test_frontdesk.py::TestMissedCalls => 11 passed, 1 warning in 0.22s
+19:33:45Z test_frontdesk.py::TestEmail test_frontdesk.py::TestInboxConnection => 45 passed, 1 warning in 2.00s
+19:33:47Z test_frontdesk.py::TestSwitches => 8 passed, 1 warning in 0.10s
+19:33:48Z test_frontdesk.py::TestSheetExport => 8 passed, 1 warning in 0.74s
+19:33:49Z test_frontdesk.py::TestScope test_frontdesk.py::TestAlertAddressMissing => 8 passed, 1 warning in 0.06s
+19:33:49Z test_booking_flow.py test_agents.py => 77 passed, 1 warning in 0.86s

@@ -1,0 +1,69 @@
+{
+  "_note": "Prices, gear, setup time and do-not-take events are PLACEHOLDERS from the DJ Val Campaign Kit until Val confirms them. While rates_confirmed is false, no quote can leave the system. features.clash_check and features.quote_approval stay false until real rates and the iCal link are in.",
+  "dj_name": "DJ Val",
+  "agent_name": "Volt",
+  "rates_confirmed": false,
+  "features": {
+    "clash_check": false,
+    "quote_approval": false
+  },
+  "booking_window_days": 365,
+  "hold_hours": 48,
+  "gap_minutes_between_gigs": 120,
+  "setup_minutes": 60,
+  "packages": {
+    "party": {
+      "label": "Party",
+      "includes": "4-hour set, his gear",
+      "price": 350,
+      "hours": 4
+    },
+    "chapter_night": {
+      "label": "Chapter Night",
+      "includes": "4 hours, lights, intro drop with your chapter's name",
+      "price": 500,
+      "hours": 4
+    },
+    "recap": {
+      "label": "Recap",
+      "includes": "Chapter Night plus a 30-second recap video within 48 hours",
+      "price": 650,
+      "hours": 4
+    }
+  },
+  "overtime_per_hour": 100,
+  "deposit_percent": 50,
+  "travel_free_miles": 30,
+  "travel_per_mile_round_trip": 0.7,
+  "campus_miles": {
+    "IU Bloomington": 0,
+    "DePauw": 45,
+    "IU Indianapolis": 55,
+    "Indiana State": 60,
+    "Ball State": 105,
+    "Purdue": 120
+  },
+  "gear_base": [
+    "Controller",
+    "Laptop and charger",
+    "Headphones",
+    "Cables and adapters",
+    "Power strip",
+    "Backup music on USB"
+  ],
+  "founders_days": {
+    "Sigma Gamma Rho": "11-12",
+    "Omega Psi Phi": "11-17",
+    "Alpha Phi Alpha": "12-04",
+    "Kappa Alpha Psi": "01-05",
+    "Phi Beta Sigma": "01-09",
+    "Delta Sigma Theta": "01-13",
+    "Alpha Kappa Alpha": "01-15",
+    "Zeta Phi Beta": "01-16",
+    "Iota Phi Theta": "09-19"
+  },
+  "officer_turnover_dates": [
+    "01-12",
+    "08-20"
+  ]
+}
