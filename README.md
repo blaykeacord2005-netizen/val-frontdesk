@@ -15,6 +15,22 @@ One app, one CRM, and a human approval step before anything reaches a client. Bu
 
 Not in this build: Name Drops, Party Wrapped, Night Card, Live Shoutouts, Demand Desk and Crate Builder are moved to `parked/` and aren't imported. Text-back isn't built: SMS waits on A2P approval.
 
+## The Closer
+Catches inquiries Val missed or is slow on, and measures how fast they get answered. Target: first reply in under an hour. GigSalad's data reports a 25% better chance of booking inside an hour; that's a target to aim at, not a promise.
+
+| Piece | Where | As shipped |
+|---|---|---|
+| Missed-call catch and voicemail | `valagents/missed_calls.py`, `/twilio/status`, `/twilio/voicemail` | Built. Waits on the Twilio number |
+| Slow-reply drafts after 2 hours | `valagents/closer.py`, runs with `/cron/email` and `/cron/daily` | ON once deployed. Drafts only |
+| Response-time log | `inquiries` table, `closer.py`, Gmail Sent check in `email_intake.py` | ON once deployed. Gmail check waits on the app password |
+| Review page with approve buttons | `/r/{token}` in `valagents/app.py` | ON once deployed |
+| Text to Val | `valagents/val_sms.py` | OFF, placeholder |
+| Daily counts | `Closer daily (auto, do not edit)` tab, `/admin/report.json` | Report ON once deployed. Tab waits on a sheet |
+
+Texts to Val need `SMS_ALERTS_ENABLED=1`, `VAL_SMS_OK=1` (only after his written OK), `VAL_MOBILE`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_NUMBER`, and approved A2P 10DLC registration for that number. Until then the email alert carries the same link.
+
+`features.voice_direct_hold` stays false, so Volt saves requests and only Val's tap can place a hold.
+
 ## Rules built in
 - Volt has no tool to confirm a booking, quote a price or take money. While switches are off it can't say a date is free or hold one.
 - Client messages are drafts until approved. The app never auto-replies to an email.

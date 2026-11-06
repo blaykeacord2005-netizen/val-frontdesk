@@ -1,0 +1,7 @@
+23:00:34Z TestMissedCallCatch => 12 passed, 1 warning in 0.36s
+23:00:35Z TestSlowReply => 27 passed, 1 warning in 0.53s
+23:00:36Z TestResponseTime => 12 passed, 1 warning in 1.29s
+23:00:37Z TestApprove => 11 passed, 1 warning in 0.26s
+23:00:38Z TestSmsToVal => 14 passed, 1 warning in 0.23s
+23:00:39Z TestDemand => 9 passed, 1 warning in 0.32s
+23:00:40Z TestSafeUpgrade => 6 passed, 1 warning in 0.06s

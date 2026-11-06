@@ -12,15 +12,17 @@ import httpx
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
+from .closer import arrived, daily_rows
 from .crm import local
-from .db import iso, utcnow
+from .db import iso, parse, utcnow
 from .money import dollars
 
 SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 GIG_HEADER = ["Booking #", "Stage", "Date", "Start", "End", "Org", "Contact", "Phone", "Email", "Venue", "Campus", "Headcount", "Package", "Quote", "Deposit", "Source", "Updated (UTC)"]
-INQ_HEADER = ["Inquiry #", "Status", "Channel", "From", "Email", "Phone", "Org", "Event", "Date", "Start", "End", "Venue", "Campus", "Headcount", "Date check", "Missing", "Received (UTC)"]
+INQ_HEADER = ["Inquiry #", "Status", "Channel", "From", "Email", "Phone", "Org", "Event", "Date", "Start", "End", "Venue", "Campus", "Headcount", "Date check", "Missing", "Received (UTC)", "Val alerted (UTC)", "Val replied (UTC)", "Minutes to first reply"]
 GIG_TAB = "Gigs (auto, do not edit)"
 INQ_TAB = "Inquiries (auto, do not edit)"
+DAILY_TAB = "Closer daily (auto, do not edit)"
 
 
 def gig_rows(conn: sqlite3.Connection) -> list[list]:
@@ -35,12 +37,18 @@ def gig_rows(conn: sqlite3.Connection) -> list[list]:
     return rows
 
 
+def _reply_minutes(q):
+    if not q["val_replied_at"] or q["reply_method"] == "logged":
+        return ""
+    return round(max(0.0, (parse(q["val_replied_at"]) - parse(arrived(q))).total_seconds()) / 60, 1)
+
+
 def inquiry_rows(conn: sqlite3.Connection) -> list[list]:
     rows = [INQ_HEADER]
     for q in conn.execute("SELECT * FROM inquiries ORDER BY id").fetchall():
         rows.append([q["id"], q["status"], q["channel"], q["from_name"] or "", q["from_email"] or "", q["from_phone"] or "", q["org"] or "", q["event_type"] or "",
                      q["event_date"] or "", q["start_time"] or "", q["end_time"] or "", q["venue"] or "", q["campus"] or "", q["headcount"] or "", q["clash_status"],
-                     ", ".join(json.loads(q["missing"] or "[]")), q["created_at"]])
+                     ", ".join(json.loads(q["missing"] or "[]")), arrived(q), q["alerted_at"] or "", q["val_replied_at"] or "", _reply_minutes(q)])
     return rows
 
 
@@ -72,6 +80,12 @@ def _write_tab(client: httpx.Client, token: str, conn: sqlite3.Connection, sheet
     range_ = f"'{tab}'!A1"
     resp = client.put(f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values/{range_}", params={"valueInputOption": "RAW"},
                       headers={"Authorization": f"Bearer {token}"}, json={"range": range_, "majorDimension": "ROWS", "values": padded})
+    if resp.status_code == 400:
+        # Most often a tab that doesn't exist yet. Add it and try once more.
+        client.post(f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}:batchUpdate", headers={"Authorization": f"Bearer {token}"},
+                    json={"requests": [{"addSheet": {"properties": {"title": tab}}}]}).raise_for_status()
+        resp = client.put(f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values/{range_}", params={"valueInputOption": "RAW"},
+                          headers={"Authorization": f"Bearer {token}"}, json={"range": range_, "majorDimension": "ROWS", "values": padded})
     resp.raise_for_status()
     conn.execute("INSERT INTO export_state(tab,row_count,content_hash,at) VALUES(?,?,?,?) ON CONFLICT(tab) DO UPDATE SET row_count=excluded.row_count,content_hash=excluded.content_hash,at=excluded.at",
                  (tab, len(rows), content_hash, iso(utcnow())))
@@ -87,6 +101,7 @@ def run(conn: sqlite3.Connection, s, transport: httpx.BaseTransport | None = Non
         with httpx.Client(timeout=30, transport=transport) as client:
             token = service_account_token(info, client)
             return {"skipped": False, GIG_TAB: _write_tab(client, token, conn, s.gig_sheet_id, GIG_TAB, gig_rows(conn)),
-                    INQ_TAB: _write_tab(client, token, conn, s.gig_sheet_id, INQ_TAB, inquiry_rows(conn))}
+                    INQ_TAB: _write_tab(client, token, conn, s.gig_sheet_id, INQ_TAB, inquiry_rows(conn)),
+                    DAILY_TAB: _write_tab(client, token, conn, s.gig_sheet_id, DAILY_TAB, daily_rows(conn, utcnow()))}
     except Exception as exc:
         return {"skipped": False, "error": type(exc).__name__}

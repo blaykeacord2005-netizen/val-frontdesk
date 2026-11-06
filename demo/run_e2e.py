@@ -4,6 +4,7 @@ Part A uses the shipped config (switches off). Part B uses a temporary config wi
 import base64, hashlib, hmac, http.server, json, os, re, shutil, socket, sqlite3, subprocess, sys, tempfile, threading, time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import parse_qs
 
 import httpx
 
@@ -45,7 +46,7 @@ def free_port():
 
 
 class App:
-    def __init__(self, tmp, name, port, imap, config, ics=""):
+    def __init__(self, tmp, name, port, imap, config, ics="", **overrides):
         self.db = str(Path(tmp) / f"{name}.db")
         self.base = f"http://127.0.0.1:{port}"
         self.env = {**os.environ, "SECRET_KEY": "e2e-secret-key-0000000000", "VOICE_TOOL_SECRET": "e2e-voice-secret-000000", "ADMIN_PASSWORD": "e2e-admin-password-0000",
@@ -54,6 +55,7 @@ class App:
                     "IMAP_HOST": "127.0.0.1", "IMAP_PORT": str(imap.port), "IMAP_USER": "fake-bookings@example.com", "IMAP_APP_PASSWORD": "fake", "EMAIL_START_DATE": "2026-11-01",
                     "TWILIO_NUMBER": "+18125550000", "TWILIO_AUTH_TOKEN": "fake-twilio-token", "SSL_CERT_FILE": imap.cert, "NO_PROXY": "127.0.0.1", "no_proxy": "127.0.0.1",
                     "ANTHROPIC_API_KEY": "", "SMTP_USER": "", "SMTP_APP_PASSWORD": "", "GIG_SHEET_ID": "", "GOOGLE_SERVICE_ACCOUNT_JSON": ""}
+        self.env.update(overrides)
         self.proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "asgi:app", "--port", str(port), "--log-level", "warning"], cwd=ROOT, env=self.env)
         self.http = httpx.Client(base_url=self.base, timeout=20, trust_env=False)
         self.voice = {"X-Voice-Secret": self.env["VOICE_TOOL_SECRET"]}
@@ -268,6 +270,110 @@ def part_c(db):
     check("second run writes nothing", set(sheet_export.run(conn, s, httpx.MockTransport(handler)).values()) >= {"unchanged"} and len([r for r in calls if "sheets.googleapis" in str(r.url)]) == len(writes))
 
 
+def part_d(tmp, tls):
+    say("")
+    say("=== PART D: The Closer. Shipped config, plus a fake Twilio so the text-to-Val path really runs. Fake numbers only ===")
+    sms = []
+
+    class FakeTwilio(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            form = parse_qs(self.rfile.read(int(self.headers["Content-Length"])).decode())
+            sms.append({"path": self.path, "to": form["To"][0], "body": form["Body"][0]})
+            self.send_response(201)
+            self.end_headers()
+            self.wfile.write(b'{"sid":"SMfake"}')
+
+        def log_message(self, *a):
+            pass
+    twilio = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeTwilio)
+    threading.Thread(target=twilio.serve_forever, daemon=True).start()
+    day = saturday(6)
+    inbox_mail = [mail("DJ for our formal", f"Organization: Test Org\r\nHi, we want to book DJ Val for our party on {words(day)} from 10pm to 2am. About 150 people. Venue: Test Hall. What are your rates?", "Fake Slow <fake-slow@example.com>", "<slow@example.com>"),
+                  mail("Book DJ", f"Organization: Other Org\r\nWe want to book a DJ for our party on {words(day + timedelta(days=7))} from 9pm to 1am. Venue: Other Hall.", "Fake Fast <fake-fast@example.com>", "<fast@example.com>")]
+    reply_at = datetime.now(timezone.utc) + timedelta(seconds=30)
+    inbox = FakeImap(inbox_mail, tls=tls, sent=[f"To: Fake Fast <fake-fast@example.com>\r\nDate: {reply_at:%a, %d %b %Y %H:%M:%S +0000}\r\n\r\n".encode()])
+    inbox.cert = tls[0]
+    app = App(tmp, "d", free_port(), inbox, str(ROOT / "data" / "val_config.json"), DRY_RUN="0", SMS_ALERTS_ENABLED="1", VAL_SMS_OK="1", VAL_MOBILE="+15555550199",
+              TWILIO_ACCOUNT_SID="ACfake", TWILIO_API_BASE=f"http://127.0.0.1:{twilio.server_address[1]}")
+    h = app.http
+    try:
+        check("switches still off, texts on for this test only", not h.get("/health").json()["clash_check"] and h.get("/health").json()["sms_alerts"])
+        empty = h.get("/admin/report.json", auth=app.auth).json()["closer_today"]
+        say(f"before anything: {empty}")
+        check("no activity reports real zeros and a blank average", empty["Inquiries"] == 0 and empty["Bookings won"] == 0 and empty["Avg minutes to Val's first reply"] == "")
+
+        say("--- 1. Missed-call catch ---")
+        started = time.time()
+        r = app.status({"CallSid": "CAc1", "CallStatus": "no-answer", "From": "+17655550122", "To": "+18125550000"}).json()
+        took = time.time() - started
+        say(f"no-answer: {r} in {took:.3f}s including alert and text")
+        check("caught in under 2 seconds locally", took < 2)
+        q = app.q("SELECT * FROM inquiries WHERE from_phone='+17655550122'")[0]
+        say(f"inquiry: channel={q['channel']} status={q['status']} received_at={q['received_at']} alerted_at={q['alerted_at']} alert_state={q['alert_state']}")
+        say(f"text to Val: {sms[0]['to']} | {sms[0]['body']}")
+        check("one text, only to Val's number", len(sms) == 1 and sms[0]["to"] == "+15555550199")
+        url = app.base + "/twilio/voicemail"
+        vm = {"CallSid": "CAc1", "From": "+17655550122", "TranscriptionText": "This is Jay from Test Org. Call me about December."}
+        sig = base64.b64encode(hmac.new(b"fake-twilio-token", (url + "".join(k + vm[k] for k in sorted(vm))).encode(), hashlib.sha1).digest()).decode()
+        check("voicemail words saved on the same inquiry", h.post("/twilio/voicemail", data=vm, headers={"X-Twilio-Signature": sig}).json()["inquiry_id"] == q["id"] and "December" in app.q("SELECT excerpt FROM inquiries WHERE id=?", q["id"])[0]["excerpt"])
+        app.status({"CallSid": "CAc2", "CallStatus": "busy", "From": "+17655550122", "To": "+18125550000"})
+        check("second try is one inquiry and no second text", len(sms) == 1 and app.n("SELECT COUNT(*) n FROM inquiries WHERE from_phone='+17655550122'") == 1)
+
+        say("--- 2. Email inquiries, then the 2-hour catch ---")
+        poll = h.post("/cron/email", headers=app.cron).json()
+        say(f"poll: {poll}")
+        slow = app.q("SELECT * FROM inquiries WHERE from_email='fake-slow@example.com'")[0]
+        fast = app.q("SELECT * FROM inquiries WHERE from_email='fake-fast@example.com'")[0]
+        check("nothing drafted before 2 hours", app.n("SELECT COUNT(*) n FROM outbox WHERE kind='closer_followup'") == 0)
+        check("Val's reply found from Gmail Sent, headers only", fast["val_replied_at"] is None or fast["reply_method"] == "gmail_sent")
+        cmds = " ".join(inbox.commands).upper()
+        check("sent folder read-only, no message text fetched from it", 'EXAMINE "[GMAIL]/SENT MAIL"' in cmds and "HEADER.FIELDS (TO DATE)" in cmds and not any(w in cmds for w in ("STORE", "EXPUNGE", "COPY", "MOVE", "APPEND")))
+        back = (datetime.now(timezone.utc) - timedelta(hours=2, minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        conn = sqlite3.connect(app.db)
+        conn.execute("UPDATE inquiries SET received_at=? WHERE id IN (?,?)", (back, slow["id"], q["id"]))
+        conn.commit()
+        conn.close()
+        out = h.post("/cron/email", headers=app.cron).json()
+        say(f"sweep after 2h05m: {out['closer']}")
+        drafts = app.q("SELECT * FROM outbox WHERE kind='closer_followup' ORDER BY id")
+        for d in drafts:
+            say(f"draft: channel={d['channel']} status={d['status']} to={d['to_addr']} | {d['body']}")
+        check("both slow inquiries drafted, none sent", len(drafts) == 2 and all(d["status"] == "draft" for d in drafts))
+        words_out = re.compile(r"\$|\b(price|pricing|rates?|quotes?|free|available|open|holds?|confirm\w*|deposits?)\b", re.I)
+        check("no price or promise in any draft, even though the client asked for rates", not any(words_out.search(d["body"]) for d in drafts))
+        check("draft carries only date, venue and headcount on file", any("Test Hall" in d["body"] and "150" in d["body"] for d in drafts))
+        again = h.post("/cron/email", headers=app.cron).json()["closer"]
+        check("running it again makes no second draft", again["drafted"] == 0 and again["nudged"] == 0)
+
+        say("--- 3. One-tap approve, from the link in Val's text ---")
+        token = next(re.search(r"/r/([\w\-.]+)", m["body"])[1] for m in sms if "Test Org" in m["body"])
+        slow_draft = next(d for d in drafts if d["channel"] == "email")
+        text_draft = next(d for d in drafts if d["channel"] == "text")
+        check("opening the link changes nothing", h.get(f"/r/{token}").status_code == 200 and app.q("SELECT status FROM outbox WHERE id=?", slow_draft["id"])[0]["status"] == "draft")
+        check("a changed link is refused", h.post(f"/r/{token[:-2]}zz/approve/{slow_draft['id']}").status_code == 409)
+        res = h.post(f"/r/{token}/approve/{slow_draft['id']}")
+        check("approve tells the truth: no mail account here, so it didn't go out", "didn't go out" in res.text)
+        check("hold button refused while switched off", h.post(f"/r/{token}/hold").status_code == 409 and app.n("SELECT COUNT(*) n FROM bookings") == 0)
+        call_token = next(re.search(r"/r/([\w\-.]+)", m["body"])[1] for m in sms if "missed call" in m["body"])
+        res = h.post(f"/r/{call_token}/approve/{text_draft['id']}")
+        check("phone draft becomes copy-and-send, Val texts it himself", "Copy this and text it yourself" in res.text)
+
+        say("--- 4. Demand count ---")
+        for row in app.q("SELECT id,channel,received_at,created_at,alerted_at,val_replied_at,reply_method FROM inquiries"):
+            say(f"timing: {row}")
+        today = h.get("/admin/report.json", auth=app.auth).json()["closer_today"]
+        say(f"today: {today}")
+        check("3 inquiries and 2 missed calls counted", today["Inquiries"] == 3 and today["Missed calls"] == 2)
+        check("bookings won stays 0 because nobody paid a deposit", today["Bookings won"] == 0)
+        check("every text went to Val and nobody else", all(m["to"] == "+15555550199" for m in sms) and len(sms) == 3)
+        check("no quote, hold or booking exists", app.n("SELECT COUNT(*) n FROM bookings") == 0 and app.n("SELECT COUNT(*) n FROM outbox WHERE kind='quote'") == 0)
+        check("no client message left as really sent", app.n("SELECT COUNT(*) n FROM outbox WHERE status='sent' AND channel='email'") == 0)
+    finally:
+        app.stop()
+        inbox.close()
+        twilio.shutdown()
+
+
 if __name__ == "__main__":
     tmp = tempfile.mkdtemp(prefix="val-e2e-")
     say(f"Run started {datetime.now(timezone.utc).isoformat(timespec='seconds')}")
@@ -276,6 +382,7 @@ if __name__ == "__main__":
         db = part_a(tmp, tls)
         part_b(tmp, tls)
         part_c(db)
+        part_d(tmp, tls)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     say("")

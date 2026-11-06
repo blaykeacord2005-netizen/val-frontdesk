@@ -56,12 +56,12 @@ def _fields(data: dict) -> dict:
             "headcount": int(headcount) if str(headcount or "").isdigit() else None, "notes": str(data.get("notes") or "")[:500] or None}
 
 
-def save_inquiry(conn: sqlite3.Connection, s: Settings, cfg: dict, data: dict) -> dict:
+def save_inquiry(conn: sqlite3.Connection, s: Settings, cfg: dict, data: dict, clash_on: bool = False, busy=None) -> dict:
     """Takes a message-with-details. Holds nothing. Val gets the email alert."""
     fields = _fields(data)
     if not any(fields[k] for k in ("from_phone", "from_email")):
         return {"ok": False, "error": "Get a phone number or email first."}
-    inquiry_id = inquiries.save(conn, s, cfg, "voice", fields)
+    inquiry_id = inquiries.save(conn, s, cfg, "voice", fields, clash_on=clash_on, busy=busy)
     return {"ok": True, "inquiry_id": inquiry_id, "held": False,
             "say": "Details saved. Nothing is held or confirmed yet. Val will reach out himself about the date and pricing."}
 

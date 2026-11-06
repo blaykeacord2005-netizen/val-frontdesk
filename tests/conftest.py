@@ -23,7 +23,7 @@ def next_saturday(weeks: int = 2) -> str:
 def settings(tmp_path):
     base = json.loads((Path(__file__).parent.parent / "data" / "val_config.json").read_text())
     base["rates_confirmed"] = True
-    base["features"] = {"clash_check": True, "quote_approval": True}
+    base["features"] = {"clash_check": True, "quote_approval": True, "voice_direct_hold": True}
     cfg = tmp_path / "cfg.json"
     cfg.write_text(json.dumps(base))
     return Settings(db_path=str(tmp_path / "t.db"), secret_key=SECRET, public_url="http://testserver", dry_run=True,

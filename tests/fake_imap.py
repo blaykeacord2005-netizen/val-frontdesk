@@ -29,8 +29,9 @@ def make_cert(folder) -> tuple[str, str]:
 
 
 class FakeImap:
-    def __init__(self, messages: list[bytes], tls: tuple[str, str] | None = None):
+    def __init__(self, messages: list[bytes], tls: tuple[str, str] | None = None, sent: list[bytes] | None = None):
         self.messages = messages
+        self.sent = sent or []
         self.commands: list[str] = []
         fake = self
 
@@ -38,6 +39,9 @@ class FakeImap:
             def out(self, data: bytes) -> None:
                 self.wfile.write(data)
                 self.wfile.flush()
+
+            def box(self) -> list[bytes]:
+                return fake.sent if getattr(self, "in_sent", False) else fake.messages
 
             def handle(self):
                 self.out(b"* OK fake ready\r\n")
@@ -53,13 +57,14 @@ class FakeImap:
                     elif cmd.startswith("LOGIN"):
                         self.out(f"{tag} OK logged in\r\n".encode())
                     elif cmd.startswith("EXAMINE"):
-                        self.out(f"* {len(fake.messages)} EXISTS\r\n{tag} OK [READ-ONLY] done\r\n".encode())
+                        self.in_sent = "SENT" in cmd
+                        self.out(f"* {len(self.box())} EXISTS\r\n{tag} OK [READ-ONLY] done\r\n".encode())
                     elif cmd.startswith("UID SEARCH"):
-                        uids = " ".join(str(i + 1) for i in range(len(fake.messages)))
+                        uids = " ".join(str(i + 1) for i in range(len(self.box())))
                         self.out(f"* SEARCH {uids}\r\n{tag} OK done\r\n".encode())
                     elif cmd.startswith("UID FETCH"):
                         uid = int(rest.split()[2])
-                        body = fake.messages[uid - 1]
+                        body = self.box()[uid - 1]
                         self.out(f"* {uid} FETCH (UID {uid} BODY[] {{{len(body)}}}\r\n".encode() + body + b")\r\n" + f"{tag} OK done\r\n".encode())
                     elif cmd.startswith("LOGOUT"):
                         self.out(b"* BYE\r\n" + f"{tag} OK bye\r\n".encode())

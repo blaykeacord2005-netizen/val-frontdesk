@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from . import crm, email_intake, followups, gigsheet, inquiries, messaging, missed_calls, onboarding, sheet_export, voice
+from . import closer, crm, email_intake, followups, gigsheet, inquiries, messaging, missed_calls, onboarding, sheet_export, voice
 from .availability import parse_ics
 from .db import connect, utcnow
 from .links import BadLink, check, consume
@@ -93,7 +93,7 @@ def create_app(settings: Settings | None = None, busy_source=None) -> FastAPI:
         conn.execute("SELECT 1").fetchone()
         c = cfg()
         return {"ok": True, "dry_run": s.dry_run, "missing_secrets": len(s.validate_for_production()),
-                "clash_check": s.clash_on(c, has_calendar), "quote_approval": s.quote_on(c), "email_intake": s.email_intake_on()}
+                "clash_check": s.clash_on(c, has_calendar), "quote_approval": s.quote_on(c), "email_intake": s.email_intake_on(), "sms_alerts": s.sms_on(), "voice_direct_hold": s.voice_can_hold(c)}
 
     # ---------- Voice agent tools ----------
     @app.post("/voice/init", dependencies=[Depends(voice_auth)])
@@ -114,7 +114,10 @@ def create_app(settings: Settings | None = None, busy_source=None) -> FastAPI:
         if not s.clash_on(c, has_calendar):
             return voice.availability_off()
         b, err = tool_busy()
-        return err or voice.check_availability(conn, c, str(d.get("date", "")), str(d.get("start_time", "")), str(d.get("end_time", "")), b)
+        out = err or voice.check_availability(conn, c, str(d.get("date", "")), str(d.get("start_time", "")), str(d.get("end_time", "")), b)
+        if out.get("available") and not (s.voice_can_hold(c) and s.quote_on(c)):
+            out["say"] = "It looks open on Val's calendar, but only Val can confirm it. Take the details with save_inquiry and say Val will follow up."
+        return out
 
     @app.post("/voice/tools/hold_date", dependencies=[Depends(voice_auth)])
     async def voice_hold(request: Request):
@@ -123,6 +126,9 @@ def create_app(settings: Settings | None = None, busy_source=None) -> FastAPI:
         if not (s.clash_on(c, has_calendar) and s.quote_on(c)):
             return voice.save_inquiry(conn, s, c, d)
         b, err = tool_busy()
+        if not s.voice_can_hold(c):
+            # Every hold waits for Val's tap. Volt only saves the request.
+            return voice.save_inquiry(conn, s, c, d, clash_on=True, busy=None if err else b)
         return err or voice.hold_date(conn, s, c, d, b)
 
     @app.post("/voice/tools/save_inquiry", dependencies=[Depends(voice_auth)])
@@ -244,7 +250,7 @@ def create_app(settings: Settings | None = None, busy_source=None) -> FastAPI:
                        f"{html.escape(' · '.join(x for x in (q['from_name'], q['from_email'], q['from_phone']) if x) or 'no contact details')}<br>"
                        f"{html.escape(q['event_date'] or 'no date')} {html.escape(q['start_time'] or '')}-{html.escape(q['end_time'] or '')}<br>"
                        f"{html.escape(' · '.join(str(x) for x in (q['venue'], q['campus'], q['headcount'] and str(q['headcount']) + ' people') if x))}<br>"
-                       f"<span class=dim>Date check: {html.escape(q['clash_status'])}"
+                       f"<span class=dim>Came in {html.escape(closer.arrived(q))} · Alerted: {html.escape(q['alerted_at'] or q['alert_state'] or 'no')} · Replied: {html.escape(q['val_replied_at'] or 'no')}<br>Date check: {html.escape(q['clash_status'])}"
                        f"{' · Missing: ' + html.escape(', '.join(missing)) if missing else ''}</span><pre>{html.escape(q['excerpt'] or '')}</pre>{hold_btn}"
                        f"<form method=post action=/admin/inquiries/{q['id']}/decline style=display:inline><button class=no>Close</button></form></div>")
         drafts = conn.execute("SELECT * FROM outbox WHERE status='draft' ORDER BY id").fetchall()
@@ -317,12 +323,107 @@ def create_app(settings: Settings | None = None, busy_source=None) -> FastAPI:
 
     @app.get("/admin/report.json", dependencies=[Depends(admin_auth)])
     def admin_report():
-        return followups.report(conn)
+        return {**followups.report(conn), "closer_today": closer.today_report(conn, utcnow()), "closer_target_minutes": closer.target_minutes(cfg())}
+
+    # ---------- The Closer: Val's review page, linked from his text and email ----------
+    def review_inquiry(token: str):
+        return inquiries.get(conn, check(conn, s.secret_key, token, ("review_inquiry",))["booking_id"])
+
+    def fmt_time(value: str | None) -> str:
+        if not value:
+            return "not yet"
+        local = crm.local(value)
+        return f"{local:%a %b} {local.day}, {local:%I:%M %p}".replace(" 0", " ")
+
+    def review_page(token: str, q, note: str = "") -> HTMLResponse:
+        c = cfg()
+        hold_on = s.clash_on(c, has_calendar) and s.quote_on(c)
+        drafts = conn.execute("SELECT * FROM outbox WHERE inquiry_id=? AND status='draft' ORDER BY id", (q["id"],)).fetchall()
+        cards = "".join(f"<div class=card><b>Draft to {html.escape(d['to_addr'] or 'nobody')}</b> ({'you text it yourself' if d['channel'] == 'text' else 'email'})<pre>{html.escape(d['body'])}</pre>"
+                        f"<form method=post action=/r/{token}/approve/{d['id']} style=display:inline><button>Approve</button></form>"
+                        f"<form method=post action=/r/{token}/reject/{d['id']} style=display:inline><button class=no>Don't send</button></form></div>" for d in drafts)
+        actions = ""
+        if q["status"] in inquiries.OPEN:
+            if q["val_replied_at"] is None:
+                actions += f"<form method=post action=/r/{token}/replied style=display:inline><button class=no>I already replied</button></form>"
+            if hold_on and q["status"] == "ready":
+                actions += f"<form method=post action=/r/{token}/hold style=display:inline><button>Hold date</button></form>"
+            actions += f"<form method=post action=/r/{token}/decline style=display:inline><button class=no>Decline</button></form>"
+        return page(q["org"] or q["from_name"] or q["from_phone"] or "Inquiry",
+                    f"{note}<div class=card>{html.escape(' · '.join(x for x in (q['from_name'], q['from_email'], q['from_phone']) if x) or 'no contact details')}<br>"
+                    f"{html.escape(q['event_date'] or 'no date')} {html.escape(q['start_time'] or '')}-{html.escape(q['end_time'] or '')}<br>"
+                    f"{html.escape(' · '.join(str(x) for x in (q['venue'], q['campus'], q['headcount'] and str(q['headcount']) + ' people') if x))}<br>"
+                    f"<span class=dim>Date check: {html.escape(inquiries.CLASH_TEXT.get(q['clash_status'], q['clash_status']))}<br>"
+                    f"Came in {fmt_time(closer.arrived(q))} · You were alerted: {fmt_time(q['alerted_at'])} · You replied: {fmt_time(q['val_replied_at'])}</span>"
+                    f"<pre>{html.escape(q['excerpt'] or '')}</pre></div>{cards}{actions}")
+
+    @app.get("/r/{token}", response_class=HTMLResponse)
+    def closer_review(token: str):
+        try:
+            return review_page(token, review_inquiry(token))
+        except (BadLink, ValueError) as exc:
+            return page("Link problem", f"<p>{html.escape(str(exc))}</p>", 400)
+
+    @app.post("/r/{token}/approve/{outbox_id}", response_class=HTMLResponse)
+    def closer_approve(token: str, outbox_id: int):
+        try:
+            q = review_inquiry(token)
+            row = conn.execute("SELECT * FROM outbox WHERE id=? AND inquiry_id=?", (outbox_id, q["id"])).fetchone()
+            if row is None:
+                raise ValueError("That draft isn't part of this inquiry.")
+            status = messaging.approve(conn, s, outbox_id, "val")
+        except (BadLink, ValueError) as exc:
+            return page("Not done", f"<p>{html.escape(str(exc))}</p>", 409)
+        if status == "copy_and_send":
+            note = f"<p>Copy this and text it yourself:</p><pre>{html.escape(row['body'])}</pre>"
+        elif status == "sent":
+            note = "<p>Sent.</p>"
+        else:
+            note = "<p>Approved, but test mode is on, so it was only logged. It didn't go out.</p>"
+        return review_page(token, inquiries.get(conn, q["id"]), note)
+
+    @app.post("/r/{token}/reject/{outbox_id}", response_class=HTMLResponse)
+    def closer_reject(token: str, outbox_id: int):
+        try:
+            q = review_inquiry(token)
+            if conn.execute("SELECT 1 FROM outbox WHERE id=? AND inquiry_id=?", (outbox_id, q["id"])).fetchone() is None:
+                raise ValueError("That draft isn't part of this inquiry.")
+            messaging.reject(conn, outbox_id, "val")
+        except (BadLink, ValueError) as exc:
+            return page("Not done", f"<p>{html.escape(str(exc))}</p>", 409)
+        return review_page(token, q, "<p>That draft won't be sent.</p>")
+
+    @app.post("/r/{token}/replied", response_class=HTMLResponse)
+    def closer_replied(token: str):
+        try:
+            q = review_inquiry(token)
+        except (BadLink, ValueError) as exc:
+            return page("Not done", f"<p>{html.escape(str(exc))}</p>", 409)
+        closer.mark_replied(conn, q["id"], "val_tapped")
+        return review_page(token, inquiries.get(conn, q["id"]), "<p>Logged.</p>")
+
+    @app.post("/r/{token}/decline", response_class=HTMLResponse)
+    def closer_decline(token: str):
+        try:
+            q = review_inquiry(token)
+            inquiries.close(conn, q["id"], "declined")
+        except (BadLink, ValueError) as exc:
+            return page("Not done", f"<p>{html.escape(str(exc))}</p>", 409)
+        return page("Declined", "<p>Closed. Nothing was sent.</p>")
+
+    @app.post("/r/{token}/hold", response_class=HTMLResponse)
+    def closer_hold(token: str):
+        try:
+            q = review_inquiry(token)
+        except (BadLink, ValueError) as exc:
+            return page("Not done", f"<p>{html.escape(str(exc))}</p>", 409)
+        return admin_inquiry_hold(q["id"])
 
     @app.post("/cron/daily")
     def cron_daily(x_cron_secret: str | None = Header(default=None)):
         need_secret(s.cron_secret, x_cron_secret)
         out = followups.run_daily(conn, s, cfg(), utcnow())
+        out["closer"] = closer.sweep(conn, s, cfg(), utcnow())
         out["sheet_export"] = sheet_export.run(conn, s)
         return out
 
@@ -336,7 +437,18 @@ def create_app(settings: Settings | None = None, busy_source=None) -> FastAPI:
                 busy_now = busy()
             except Exception:
                 busy_now = None
-        return email_intake.poll_inbox(conn, s, c, clash_on=s.clash_on(c, has_calendar), busy=busy_now)
+        out = email_intake.poll_inbox(conn, s, c, clash_on=s.clash_on(c, has_calendar), busy=busy_now)
+        # Slow-reply catch rides on this 15-minute job, so it needs no new Railway service. It also runs while email intake is off.
+        out["closer"] = closer.sweep(conn, s, c, utcnow())
+        return out
+
+    @app.post("/twilio/voicemail")
+    async def twilio_voicemail(request: Request, x_twilio_signature: str | None = Header(default=None)):
+        form = await request.form()
+        params = {k: str(v) for k, v in form.items()}
+        if not missed_calls.valid_signature(s.twilio_auth_token, s.public_url + "/twilio/voicemail", params, x_twilio_signature):
+            raise HTTPException(403, "Bad signature")
+        return missed_calls.handle_voicemail(conn, s, cfg(), params)
 
     @app.post("/twilio/status")
     async def twilio_status(request: Request, x_twilio_signature: str | None = Header(default=None)):

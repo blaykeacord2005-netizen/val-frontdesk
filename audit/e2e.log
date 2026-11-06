@@ -1,81 +1,123 @@
-19:33:52Z Run started 2026-11-05T19:33:52+00:00
-19:33:52Z === PART A: shipped config. Clash check and quote approval OFF, rates_confirmed false ===
-19:33:52Z /health {"ok": true, "dry_run": true, "missing_secrets": 0, "clash_check": false, "quote_approval": false, "email_intake": true}
-19:33:52Z   PASS  switches report off, dry run on
-19:33:52Z --- 1. Voice front desk (the tools ElevenLabs would call) ---
-19:33:52Z init: {'today': 'Thursday, November 5, 2026', 'caller_number': '+17655550100', 'agent_name': 'Volt', 'dj_name': 'DJ Val'}
-19:33:52Z check_availability: {'ok': True, 'available': None, 'say': "You can't check dates yet. Take the details with save_inquiry and say Val will confirm the date himself."}
-19:33:52Z   PASS  Volt can't say a date is free
-19:33:52Z save_inquiry: {'ok': True, 'inquiry_id': 1, 'held': False, 'say': 'Details saved. Nothing is held or confirmed yet. Val will reach out himself about the date and pricing.'}
-19:33:52Z   PASS  details saved, nothing held
-19:33:52Z hold_date (off): {'ok': True, 'inquiry_id': 2, 'held': False, 'say': 'Details saved. Nothing is held or confirmed yet. Val will reach out himself about the date and pricing.'}
-19:33:52Z   PASS  hold tool holds nothing
-19:33:52Z   PASS  voice tool without secret refused
-19:33:52Z --- 2. Missed calls (signed callbacks shaped like Twilio's) ---
-19:33:52Z no-answer: {'ok': True, 'outcome': 'missed'}
-19:33:52Z alert: to=fake-val@example.com status=logged subject='New inquiry: +17655550122'
-19:33:52Z   PASS  Val's alert has the number
-19:33:52Z   PASS  same callback twice is one alert
-19:33:52Z   PASS  forged signature refused
-19:33:52Z   PASS  real conversation makes no missed alert
-19:33:52Z --- 3. Email intake (real imaplib over TLS to a local inbox) ---
-19:33:52Z first poll: {'skipped': False, 'inquiry': 3, 'ignored_automated': 1, 'ignored_not_booking': 1}
-19:33:52Z second poll: {'skipped': False, 'duplicate': 5}
-19:33:52Z   PASS  second poll creates nothing new
-19:33:52Z IMAP commands: CAPABILITY | EXAMINE INBOX | LOGIN *** | LOGOUT | UID FETCH n (BODY.PEEK[]) | UID SEARCH SINCE 01-Nov-2026
-19:33:52Z   PASS  mailbox opened read-only, fetched with PEEK
-19:33:52Z   PASS  no command that changes the mailbox
-19:33:52Z inquiry: {'id': 4, 'channel': 'email', 'status': 'ready', 'from_email': 'fake-maya@example.com', 'org': 'Omega Psi Phi Rho Sigma', 'campus': 'Purdue', 'event_date': '2026-12-19', 'start_time': '22:00', 'end_time': '02:00', 'headcount': 150, 'venue': 'Test Hall', 'clash_status': 'not_checked'}
-19:33:52Z inquiry: {'id': 5, 'channel': 'email', 'status': 'needs_info', 'from_email': 'fake-jay@example.com', 'org': None, 'campus': None, 'event_date': None, 'start_time': None, 'end_time': None, 'headcount': None, 'venue': None, 'clash_status': 'not_checked'}
-19:33:52Z inquiry: {'id': 6, 'channel': 'email', 'status': 'needs_info', 'from_email': 'fake-evil@example.com', 'org': None, 'campus': None, 'event_date': '2026-12-26', 'start_time': '21:00', 'end_time': '01:00', 'headcount': None, 'venue': None, 'clash_status': 'not_checked'}
-19:33:52Z   PASS  full email captured
-19:33:52Z   PASS  clash marked not checked
-19:33:52Z   PASS  incomplete email marked needs_info
-19:33:52Z draft to client: status=draft to=fake-jay@example.com | 'Hey Fake, thanks for reaching out about DJ Val. To check this for you, could you send: organization, date, start time, end time, venue or ca'
-19:33:52Z   PASS  question to client stays a draft
-19:33:52Z   PASS  newsletter and personal mail not stored
-19:33:52Z   PASS  injection email is only an inquiry
-19:33:52Z --- 4. Switched-off actions ---
-19:33:52Z admin hold: 409 <!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
-19:33:52Z   PASS  hold from queue refused while off
-19:33:52Z   PASS  admin shows the queue
-19:33:52Z --- 5. Daily gig tracker export ---
-19:33:52Z daily: sheet_export={'skipped': True, 'missing': ['GIG_SHEET_ID', 'GOOGLE_SERVICE_ACCOUNT_JSON']}
-19:33:52Z   PASS  sheet export skips without a sheet
-19:33:52Z --- Part A safety totals ---
-19:33:52Z outbox: {'kind': 'alert', 'status': 'logged', 'n': 6}
-19:33:52Z outbox: {'kind': 'email_info_request', 'status': 'draft', 'n': 2}
-19:33:52Z   PASS  no booking, quote or hold exists
-19:33:52Z   PASS  nothing was really sent
-19:33:52Z   PASS  nothing went to a client except drafts
-19:33:53Z 
-19:33:53Z === PART B: temporary config, switches ON, made-up rates, fake calendar. Proves the OFF parts work when turned on ===
-19:33:53Z   PASS  switches report on
-19:33:53Z poll: {'skipped': False, 'inquiry': 2}
-19:33:53Z clash results: free night=open, night on fake calendar=conflict
-19:33:53Z   PASS  open night reads open
-19:33:53Z   PASS  calendar night reads conflict
-19:33:53Z   PASS  conflict can't be held
-19:33:53Z inquiry one: status=ready org=Test Org missing=[]
-19:33:53Z   PASS  open night promoted to a hold
-19:33:53Z   PASS  opening the link does nothing
-19:33:53Z   PASS  button approves
-19:33:53Z   PASS  second tap refused
-19:33:53Z quote: status=draft to=fake-one@example.com | "Hey Fake, it's Val. I can do Sat Jan 2, 10:00pm–2:00am for Test Org.\n\nChapter Night: $500\nTotal: $500\n\n$250 deposit hold"
-19:33:53Z   PASS  quote is a draft until Val approves it
-19:33:53Z voice on calendar night: {'ok': True, 'available': False, 'say': "That time isn't open. Ask for another date, or offer to have Val follow up."}
-19:33:53Z   PASS  voice sees the calendar
-19:33:53Z   PASS  voice sees the new hold
-19:33:54Z 
-19:33:54Z === PART C: export the Part A CRM to a fake Google Sheets endpoint ===
-19:33:54Z export: {'skipped': False, 'Gigs (auto, do not edit)': 'wrote 0 rows', 'Inquiries (auto, do not edit)': 'wrote 6 rows'}
-19:33:54Z POST https://oauth2.googleapis.com/token
-19:33:54Z PUT https://sheets.googleapis.com/v4/spreadsheets/FAKE_SHEET/values/'Gigs%20(auto,%20do%20not%20edit)'!A1?valueInp
-19:33:54Z PUT https://sheets.googleapis.com/v4/spreadsheets/FAKE_SHEET/values/'Inquiries%20(auto,%20do%20not%20edit)'!A1?val
-19:33:54Z inquiry tab header: ['Inquiry #', 'Status', 'Channel', 'From', 'Email', 'Phone', 'Org', 'Event', 'Date', 'Start', 'End', 'Venue', 'Campus', 'Headcount', 'Date check', 'Missing', 'Received (UTC)']
-19:33:54Z inquiry tab first row: [1, 'ready', 'voice', 'Fake Caller', 'fake-caller@example.com', '+17655550111', 'Test Org', 'party', '2026-12-19', '22:00', '02:00', 'Test Hall', '', '', 'not_checked', '', '2026-11-05T19:33:52Z']
-19:33:54Z   PASS  only POST for token and PUT to sheet, no reads
-19:33:54Z   PASS  every open inquiry exported
-19:33:54Z   PASS  second run writes nothing
-19:33:54Z 
-19:33:54Z RESULT: ALL CHECKS PASSED
+23:00:40Z Run started 2026-11-05T23:00:40+00:00
+23:00:40Z === PART A: shipped config. Clash check and quote approval OFF, rates_confirmed false ===
+23:00:41Z /health {"ok": true, "dry_run": true, "missing_secrets": 0, "clash_check": false, "quote_approval": false, "email_intake": true, "sms_alerts": false, "voice_direct_hold": false}
+23:00:41Z   PASS  switches report off, dry run on
+23:00:41Z --- 1. Voice front desk (the tools ElevenLabs would call) ---
+23:00:41Z init: {'today': 'Thursday, November 5, 2026', 'caller_number': '+17655550100', 'agent_name': 'Volt', 'dj_name': 'DJ Val'}
+23:00:41Z check_availability: {'ok': True, 'available': None, 'say': "You can't check dates yet. Take the details with save_inquiry and say Val will confirm the date himself."}
+23:00:41Z   PASS  Volt can't say a date is free
+23:00:41Z save_inquiry: {'ok': True, 'inquiry_id': 1, 'held': False, 'say': 'Details saved. Nothing is held or confirmed yet. Val will reach out himself about the date and pricing.'}
+23:00:41Z   PASS  details saved, nothing held
+23:00:41Z hold_date (off): {'ok': True, 'inquiry_id': 2, 'held': False, 'say': 'Details saved. Nothing is held or confirmed yet. Val will reach out himself about the date and pricing.'}
+23:00:41Z   PASS  hold tool holds nothing
+23:00:41Z   PASS  voice tool without secret refused
+23:00:41Z --- 2. Missed calls (signed callbacks shaped like Twilio's) ---
+23:00:41Z no-answer: {'ok': True, 'outcome': 'missed'}
+23:00:41Z alert: to=fake-val@example.com status=logged subject='New inquiry: +17655550122'
+23:00:41Z   PASS  Val's alert has the number
+23:00:41Z   PASS  same callback twice is one alert
+23:00:41Z   PASS  forged signature refused
+23:00:41Z   PASS  real conversation makes no missed alert
+23:00:41Z --- 3. Email intake (real imaplib over TLS to a local inbox) ---
+23:00:41Z first poll: {'skipped': False, 'inquiry': 3, 'ignored_automated': 1, 'ignored_not_booking': 1, 'val_replied': 0, 'closer': {'drafted': 0, 'nudged': 0, 'no_contact': 0, 'alerts_retried': 0}}
+23:00:41Z second poll: {'skipped': False, 'duplicate': 5, 'val_replied': 0, 'closer': {'drafted': 0, 'nudged': 0, 'no_contact': 0, 'alerts_retried': 0}}
+23:00:41Z   PASS  second poll creates nothing new
+23:00:41Z IMAP commands: CAPABILITY | EXAMINE "[Gmail]/Sent Mail" | EXAMINE INBOX | LOGIN *** | LOGOUT | UID FETCH n (BODY.PEEK[]) | UID SEARCH SINCE 01-Nov-2026
+23:00:41Z   PASS  mailbox opened read-only, fetched with PEEK
+23:00:41Z   PASS  no command that changes the mailbox
+23:00:41Z inquiry: {'id': 4, 'channel': 'email', 'status': 'ready', 'from_email': 'fake-maya@example.com', 'org': 'Omega Psi Phi Rho Sigma', 'campus': 'Purdue', 'event_date': '2026-12-19', 'start_time': '22:00', 'end_time': '02:00', 'headcount': 150, 'venue': 'Test Hall', 'clash_status': 'not_checked'}
+23:00:41Z inquiry: {'id': 5, 'channel': 'email', 'status': 'needs_info', 'from_email': 'fake-jay@example.com', 'org': None, 'campus': None, 'event_date': None, 'start_time': None, 'end_time': None, 'headcount': None, 'venue': None, 'clash_status': 'not_checked'}
+23:00:41Z inquiry: {'id': 6, 'channel': 'email', 'status': 'needs_info', 'from_email': 'fake-evil@example.com', 'org': None, 'campus': None, 'event_date': '2026-12-26', 'start_time': '21:00', 'end_time': '01:00', 'headcount': None, 'venue': None, 'clash_status': 'not_checked'}
+23:00:41Z   PASS  full email captured
+23:00:41Z   PASS  clash marked not checked
+23:00:41Z   PASS  incomplete email marked needs_info
+23:00:41Z draft to client: status=draft to=fake-jay@example.com | 'Hey Fake, thanks for reaching out about DJ Val. To check this for you, could you send: organization, date, start time, end time, venue or ca'
+23:00:41Z   PASS  question to client stays a draft
+23:00:41Z   PASS  newsletter and personal mail not stored
+23:00:41Z   PASS  injection email is only an inquiry
+23:00:41Z --- 4. Switched-off actions ---
+23:00:41Z admin hold: 409 <!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
+23:00:41Z   PASS  hold from queue refused while off
+23:00:41Z   PASS  admin shows the queue
+23:00:41Z --- 5. Daily gig tracker export ---
+23:00:41Z daily: sheet_export={'skipped': True, 'missing': ['GIG_SHEET_ID', 'GOOGLE_SERVICE_ACCOUNT_JSON']}
+23:00:41Z   PASS  sheet export skips without a sheet
+23:00:41Z --- Part A safety totals ---
+23:00:41Z outbox: {'kind': 'alert', 'status': 'logged', 'n': 6}
+23:00:41Z outbox: {'kind': 'email_info_request', 'status': 'draft', 'n': 2}
+23:00:41Z   PASS  no booking, quote or hold exists
+23:00:41Z   PASS  nothing was really sent
+23:00:41Z   PASS  nothing went to a client except drafts
+23:00:41Z 
+23:00:41Z === PART B: temporary config, switches ON, made-up rates, fake calendar. Proves the OFF parts work when turned on ===
+23:00:41Z   PASS  switches report on
+23:00:42Z poll: {'skipped': False, 'inquiry': 2, 'val_replied': 0, 'closer': {'drafted': 0, 'nudged': 0, 'no_contact': 0, 'alerts_retried': 0}}
+23:00:42Z clash results: free night=open, night on fake calendar=conflict
+23:00:42Z   PASS  open night reads open
+23:00:42Z   PASS  calendar night reads conflict
+23:00:42Z   PASS  conflict can't be held
+23:00:42Z inquiry one: status=ready org=Test Org missing=[]
+23:00:42Z   PASS  open night promoted to a hold
+23:00:42Z   PASS  opening the link does nothing
+23:00:42Z   PASS  button approves
+23:00:42Z   PASS  second tap refused
+23:00:42Z quote: status=draft to=fake-one@example.com | "Hey Fake, it's Val. I can do Sat Jan 2, 10:00pm–2:00am for Test Org.\n\nChapter Night: $500\nTotal: $500\n\n$250 deposit hold"
+23:00:42Z   PASS  quote is a draft until Val approves it
+23:00:42Z voice on calendar night: {'ok': True, 'available': False, 'say': "That time isn't open. Ask for another date, or offer to have Val follow up."}
+23:00:42Z   PASS  voice sees the calendar
+23:00:42Z   PASS  voice sees the new hold
+23:00:42Z 
+23:00:42Z === PART C: export the Part A CRM to a fake Google Sheets endpoint ===
+23:00:42Z export: {'skipped': False, 'Gigs (auto, do not edit)': 'wrote 0 rows', 'Inquiries (auto, do not edit)': 'wrote 6 rows', 'Closer daily (auto, do not edit)': 'wrote 1 rows'}
+23:00:42Z POST https://oauth2.googleapis.com/token
+23:00:42Z PUT https://sheets.googleapis.com/v4/spreadsheets/FAKE_SHEET/values/'Gigs%20(auto,%20do%20not%20edit)'!A1?valueInp
+23:00:42Z PUT https://sheets.googleapis.com/v4/spreadsheets/FAKE_SHEET/values/'Inquiries%20(auto,%20do%20not%20edit)'!A1?val
+23:00:42Z PUT https://sheets.googleapis.com/v4/spreadsheets/FAKE_SHEET/values/'Closer%20daily%20(auto,%20do%20not%20edit)'!A
+23:00:42Z inquiry tab header: ['Inquiry #', 'Status', 'Channel', 'From', 'Email', 'Phone', 'Org', 'Event', 'Date', 'Start', 'End', 'Venue', 'Campus', 'Headcount', 'Date check', 'Missing', 'Received (UTC)', 'Val alerted (UTC)', 'Val replied (UTC)', 'Minutes to first reply']
+23:00:42Z inquiry tab first row: [1, 'ready', 'voice', 'Fake Caller', 'fake-caller@example.com', '+17655550111', 'Test Org', 'party', '2026-12-19', '22:00', '02:00', 'Test Hall', '', '', 'not_checked', '', '2026-11-05T23:00:41Z', '', '', '']
+23:00:42Z   PASS  only POST for token and PUT to sheet, no reads
+23:00:42Z   PASS  every open inquiry exported
+23:00:42Z   PASS  second run writes nothing
+23:00:42Z 
+23:00:42Z === PART D: The Closer. Shipped config, plus a fake Twilio so the text-to-Val path really runs. Fake numbers only ===
+23:00:42Z   PASS  switches still off, texts on for this test only
+23:00:43Z before anything: {'Date': '2026-11-05', 'Inquiries': 0, 'Missed calls': 0, 'Avg seconds to alert Val': '', "Avg minutes to Val's first reply": '', 'Replied under 1 hour': 0, 'Still unanswered': 0, 'Bookings won': 0}
+23:00:43Z   PASS  no activity reports real zeros and a blank average
+23:00:43Z --- 1. Missed-call catch ---
+23:00:43Z no-answer: {'ok': True, 'outcome': 'missed'} in 0.010s including alert and text
+23:00:43Z   PASS  caught in under 2 seconds locally
+23:00:43Z inquiry: channel=missed_call status=needs_info received_at=2026-11-05T23:00:43Z alerted_at=2026-11-05T23:00:43Z alert_state=sent
+23:00:43Z text to Val: +15555550199 | DJ Val missed call: +17655550122. Call back, or review: http://127.0.0.1:38803/r/hdcqIrT9zK-6CHKpyR4Xbw.2SQEP4oPg8BNXtUcJ11lsh77ti06jdD0-mawUlc8gTQ
+23:00:43Z   PASS  one text, only to Val's number
+23:00:43Z   PASS  voicemail words saved on the same inquiry
+23:00:43Z   PASS  second try is one inquiry and no second text
+23:00:43Z --- 2. Email inquiries, then the 2-hour catch ---
+23:00:43Z poll: {'skipped': False, 'inquiry': 2, 'val_replied': 1, 'closer': {'drafted': 0, 'nudged': 0, 'no_contact': 0, 'alerts_retried': 0}}
+23:00:43Z   PASS  nothing drafted before 2 hours
+23:00:43Z   PASS  Val's reply found from Gmail Sent, headers only
+23:00:43Z   PASS  sent folder read-only, no message text fetched from it
+23:00:43Z sweep after 2h05m: {'drafted': 2, 'nudged': 2, 'no_contact': 0, 'alerts_retried': 0}
+23:00:43Z draft: channel=text status=draft to=+17655550122 | Hey, it's Val. Sorry I missed your call. If this is about an event, send me the date, time and venue and I'll follow up personally.
+23:00:43Z draft: channel=email status=draft to=fake-slow@example.com | Hey Fake, it's Val. Thanks for reaching out about DJing for Test Org on Sat Dec 19 at Test Hall with about 150 people. I'll follow up with you personally on next steps.
+23:00:43Z   PASS  both slow inquiries drafted, none sent
+23:00:43Z   PASS  no price or promise in any draft, even though the client asked for rates
+23:00:43Z   PASS  draft carries only date, venue and headcount on file
+23:00:43Z   PASS  running it again makes no second draft
+23:00:43Z --- 3. One-tap approve, from the link in Val's text ---
+23:00:43Z   PASS  opening the link changes nothing
+23:00:43Z   PASS  a changed link is refused
+23:00:43Z   PASS  approve tells the truth: no mail account here, so it didn't go out
+23:00:43Z   PASS  hold button refused while switched off
+23:00:43Z   PASS  phone draft becomes copy-and-send, Val texts it himself
+23:00:43Z --- 4. Demand count ---
+23:00:43Z timing: {'id': 1, 'channel': 'missed_call', 'received_at': '2026-11-05T20:55:43Z', 'created_at': '2026-11-05T23:00:43Z', 'alerted_at': '2026-11-05T23:00:43Z', 'val_replied_at': '2026-11-05T23:00:43Z', 'reply_method': 'copy_and_send'}
+23:00:43Z timing: {'id': 2, 'channel': 'email', 'received_at': '2026-11-05T20:55:43Z', 'created_at': '2026-11-05T23:00:43Z', 'alerted_at': '2026-11-05T23:00:43Z', 'val_replied_at': '2026-11-05T23:00:43Z', 'reply_method': 'logged'}
+23:00:43Z timing: {'id': 3, 'channel': 'email', 'received_at': '2026-11-05T23:00:42Z', 'created_at': '2026-11-05T23:00:43Z', 'alerted_at': '2026-11-05T23:00:43Z', 'val_replied_at': '2026-11-05T23:01:12Z', 'reply_method': 'gmail_sent'}
+23:00:43Z today: {'Date': '2026-11-05', 'Inquiries': 3, 'Missed calls': 2, 'Avg seconds to alert Val': 5000.3, "Avg minutes to Val's first reply": 62.8, 'Replied under 1 hour': 1, 'Still unanswered': 1, 'Bookings won': 0}
+23:00:43Z   PASS  3 inquiries and 2 missed calls counted
+23:00:43Z   PASS  bookings won stays 0 because nobody paid a deposit
+23:00:43Z   PASS  every text went to Val and nobody else
+23:00:43Z   PASS  no quote, hold or booking exists
+23:00:43Z   PASS  no client message left as really sent
+23:00:44Z 
+23:00:44Z RESULT: ALL CHECKS PASSED

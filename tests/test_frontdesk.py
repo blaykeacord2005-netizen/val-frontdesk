@@ -145,7 +145,8 @@ class TestMissedCalls:
         c = off.app.state.conn
         post_status(off, {"CallSid": "CA7", "CallStatus": "busy", "From": "+17655550100", "To": "+18125550000"})
         assert c.execute("SELECT COUNT(*) n FROM outbox WHERE channel<>'email' OR to_addr LIKE '+%'").fetchone()["n"] == 0
-        assert not any("/Messages" in p.read_text() for p in Path("valagents").glob("*.py"))
+        # Only val_sms may reach Twilio's Messages API, and it has no way to take a client's number.
+        assert [p.name for p in Path("valagents").glob("*.py") if "/Messages" in p.read_text()] == ["val_sms.py"]
 
 
 # ---------- C. Email intake ----------
@@ -382,7 +383,7 @@ class TestAlertAddressMissing:
 # ---------- D. Clash check and quote approval: built, switched off ----------
 class TestSwitches:
     def test_shipped_config_is_off(self):
-        assert SHIPPED["rates_confirmed"] is False and SHIPPED["features"] == {"clash_check": False, "quote_approval": False}
+        assert SHIPPED["rates_confirmed"] is False and SHIPPED["features"] == {"clash_check": False, "quote_approval": False, "voice_direct_hold": False}
 
     def test_health_reports_off(self, off):
         h = off.get("/health").json()
@@ -484,7 +485,7 @@ class TestSheetExport:
         rec = Recorder()
         out = sheet_export.run(c, s, httpx.MockTransport(rec))
         assert out["skipped"] is False and out[sheet_export.GIG_TAB] == "wrote 1 rows"
-        assert len(rec.writes) == 2 and all(r.method == "PUT" for r in rec.writes)
+        assert len(rec.writes) == 3 and all(r.method == "PUT" for r in rec.writes)
         assert not any(r.method == "GET" for r in rec.calls)
         assert ".get(" not in Path("valagents/sheet_export.py").read_text().replace("resp.json().get", "")
 

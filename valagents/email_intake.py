@@ -10,13 +10,14 @@ import ssl
 import json
 import re
 import sqlite3
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from email import message_from_bytes, policy
-from email.utils import parseaddr, parsedate_to_datetime
+from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 
 import httpx
 
 from . import inquiries
+from .closer import clamp_received, mark_replied
 from .db import audit, iso, utcnow
 from .messaging import alert, draft
 from .settings import TZ, Settings
@@ -276,8 +277,12 @@ def ingest(conn: sqlite3.Connection, s: Settings, cfg: dict, raw: bytes, *, clas
     if kind == "ignore":
         _seen(conn, message_id, "ignored_not_booking", None)
         return {"result": "ignored_not_booking"}
+    try:
+        sent_date = parsedate_to_datetime(str(msg.get("Date") or ""))
+    except (TypeError, ValueError):
+        sent_date = None
     fields.update(from_name=" ".join(name.split())[:80] or None, from_email=sender, subject=subject, excerpt=excerpt,
-                  notes="; ".join(problems) or None)
+                  notes="; ".join(problems) or None, received_at=clamp_received(sent_date, utcnow()))
     inquiry_id = inquiries.save(conn, s, cfg, "email", fields, clash_on=clash_on, busy=busy, status="review" if kind == "review" else None,
                                 external_ref=f"email:{_hash(message_id)}", method=method)
     _seen(conn, message_id, "inquiry", inquiry_id, keep_id=True)
@@ -290,8 +295,39 @@ def ingest(conn: sqlite3.Connection, s: Settings, cfg: dict, raw: bytes, *, clas
         if ask:
             draft(conn, "email", sender, f"Re: {subject}" if subject else "DJ Val booking",
                   f"Hey{' ' + name.split()[0] if name else ''}, thanks for reaching out about DJ Val. To check this for you, could you send: {', '.join(ask)}?\n\n"
-                  "Val will follow up himself once he has that.", None, "email_info_request", f"info-{inquiry_id}", in_reply_to=message_id)
+                  "Val will follow up himself once he has that.", None, "email_info_request", f"info-{inquiry_id}", in_reply_to=message_id, inquiry_id=inquiry_id)
     return {"result": "inquiry", "inquiry_id": inquiry_id, "status": row["status"], "clash": row["clash_status"], "missing": missing}
+
+
+def _check_sent_folder(conn: sqlite3.Connection, s: Settings, client, since: datetime) -> int | None:
+    """Val will mostly reply from Gmail itself, so his reply time has to come from there. Read-only, headers only: who and when.
+    A failure here is skipped, since it only costs a measurement. His message text is never fetched."""
+    waiting = conn.execute("SELECT id,from_email,COALESCE(received_at,created_at) arrived FROM inquiries WHERE from_email IS NOT NULL AND val_replied_at IS NULL").fetchall()
+    if not waiting:
+        return None
+    try:
+        status, _ = client.select(f'"{s.imap_sent_folder}"', readonly=True)
+        if status != "OK":
+            return None
+        status, data = client.uid("SEARCH", None, "SINCE", since.strftime("%d-%b-%Y"))
+        if status != "OK":
+            return None
+        marked = 0
+        for uid in (data[0] or b"").split()[-MAX_PER_POLL:]:
+            status, parts = client.uid("FETCH", uid, "(BODY.PEEK[HEADER.FIELDS (TO DATE)])")
+            raw = next((p[1] for p in parts if isinstance(p, tuple)), None) if status == "OK" else None
+            if not raw:
+                continue
+            msg = message_from_bytes(raw, policy=policy.default)
+            to = {a.lower() for _, a in getaddresses([str(msg.get("To") or "")])}
+            when = parsedate_to_datetime(str(msg.get("Date") or ""))
+            sent_at = iso(when if when.tzinfo else when.replace(tzinfo=timezone.utc))
+            for row in waiting:
+                if row["from_email"] in to and sent_at >= row["arrived"] and mark_replied(conn, row["id"], "gmail_sent", sent_at):
+                    marked += 1
+        return marked
+    except (imaplib.IMAP4.error, OSError, TypeError, ValueError):
+        return None
 
 
 def poll_inbox(conn: sqlite3.Connection, s: Settings, cfg: dict, *, clash_on: bool = False, busy=None, client_factory=None) -> dict:
@@ -333,6 +369,9 @@ def poll_inbox(conn: sqlite3.Connection, s: Settings, cfg: dict, *, clash_on: bo
             except Exception:
                 result = "error"
             counts[result] = counts.get(result, 0) + 1
+        replied = _check_sent_folder(conn, s, client, since)
+        if replied is not None:
+            counts["val_replied"] = replied
     finally:
         try:
             client.logout()

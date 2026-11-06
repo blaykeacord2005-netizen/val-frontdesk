@@ -66,6 +66,8 @@ Point the public line at the Twilio number. Two options:
 
 **Report how calls end (missed-call alerts):** in Twilio, open the number and set the call status changes webhook to `https://<PUBLIC_URL>/twilio/status`, method POST. `TWILIO_AUTH_TOKEN` must be set in the app. Unverified: whether ElevenLabs' Twilio connection leaves this setting alone. Check it in the first test call.
 
+**Voicemail (optional):** if a recording flow is added on the number, point its recording or transcription callback at `https://<PUBLIC_URL>/twilio/voicemail`, method POST. The words get added to the missed-call inquiry. Unverified until a live test: this has only run against fake callbacks.
+
 ## 6. Test before it goes public
 Make all 10 calls. Each must pass.
 1. Normal booking. With holds off: details saved, nothing promised. With holds on: hold placed.

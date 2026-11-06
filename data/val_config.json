@@ -5,7 +5,12 @@
   "rates_confirmed": false,
   "features": {
     "clash_check": false,
-    "quote_approval": false
+    "quote_approval": false,
+    "voice_direct_hold": false
+  },
+  "closer": {
+    "slow_reply_hours": 2,
+    "first_response_target_minutes": 60
   },
   "booking_window_days": 365,
   "hold_hours": 48,

@@ -39,6 +39,12 @@ class Settings:
     booking_email: str = field(default_factory=lambda: os.getenv("VAL_BOOKING_EMAIL", ""))
     twilio_number: str = field(default_factory=lambda: os.getenv("TWILIO_NUMBER", ""))
     twilio_auth_token: str = field(default_factory=lambda: os.getenv("TWILIO_AUTH_TOKEN", ""))
+    twilio_account_sid: str = field(default_factory=lambda: os.getenv("TWILIO_ACCOUNT_SID", ""))
+    twilio_api_base: str = field(default_factory=lambda: os.getenv("TWILIO_API_BASE", "https://api.twilio.com"))
+    val_mobile: str = field(default_factory=lambda: os.getenv("VAL_MOBILE", ""))
+    val_sms_ok: bool = field(default_factory=lambda: _flag("VAL_SMS_OK", "0"))
+    sms_alerts_enabled: bool = field(default_factory=lambda: _flag("SMS_ALERTS_ENABLED", "0"))
+    imap_sent_folder: str = field(default_factory=lambda: os.getenv("IMAP_SENT_FOLDER", "[Gmail]/Sent Mail"))
     email_intake_enabled: bool = field(default_factory=lambda: _flag("EMAIL_INTAKE_ENABLED", "0"))
     imap_host: str = field(default_factory=lambda: os.getenv("IMAP_HOST", "imap.gmail.com"))
     imap_port: int = field(default_factory=lambda: int(os.getenv("IMAP_PORT", "993")))
@@ -66,6 +72,14 @@ class Settings:
     def quote_on(self, cfg: dict) -> bool:
         """Quote approval needs both the switch and Val's confirmed rates."""
         return bool(cfg.get("features", {}).get("quote_approval")) and bool(cfg.get("rates_confirmed"))
+
+    def sms_on(self) -> bool:
+        """Texts to Val need the switch, the Twilio details, his number and his written OK."""
+        return bool(self.sms_alerts_enabled and self.val_sms_ok and self.val_mobile and self.twilio_number and self.twilio_account_sid and self.twilio_auth_token)
+
+    def voice_can_hold(self, cfg: dict) -> bool:
+        """Off by default: Volt saves the details and Val places any hold himself."""
+        return bool(cfg.get("features", {}).get("voice_direct_hold"))
 
     def email_intake_on(self) -> bool:
         return bool(self.email_intake_enabled and self.booking_email and self.imap_user and self.imap_password and self.email_start_date)

@@ -6,6 +6,7 @@ import json
 import sqlite3
 from datetime import date
 
+from . import closer
 from .availability import BadTime, conflicts, local_window
 from .crm import clean_email, clean_phone, create_hold
 from .db import audit, iso, utcnow
@@ -49,16 +50,17 @@ def save(conn: sqlite3.Connection, s: Settings, cfg: dict, channel: str, f: dict
     now = iso(utcnow())
     cur = conn.execute(
         "INSERT INTO inquiries(channel,status,from_name,from_email,from_phone,org,role,event_type,event_date,start_time,end_time,venue,campus,"
-        "headcount,missing,notes,clash_status,subject,excerpt,method,external_ref,created_at,updated_at) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "headcount,missing,notes,clash_status,subject,excerpt,method,external_ref,created_at,updated_at,received_at) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (channel, state, f.get("from_name"), f.get("from_email"), f.get("from_phone"), f.get("org"), f.get("role"), f.get("event_type"),
          f.get("event_date"), f.get("start_time"), f.get("end_time"), f.get("venue"), f.get("campus"), f.get("headcount"), json.dumps(missing),
-         f.get("notes"), clash, f.get("subject"), f.get("excerpt"), method, external_ref, now, now),
+         f.get("notes"), clash, f.get("subject"), f.get("excerpt"), method, external_ref, now, now, f.get("received_at") or now),
     )
     inquiry_id = cur.lastrowid
     audit(conn, channel, "inquiry.new", None, {"inquiry": inquiry_id, "status": state, "clash": clash})
     if alert_val:
         notify(conn, s, inquiry_id)
+        closer.text_val(conn, s, inquiry_id)
     return inquiry_id
 
 
@@ -83,8 +85,10 @@ def notify(conn: sqlite3.Connection, s: Settings, inquiry_id: int, prefix: str =
              f"Still missing: {', '.join(missing) or 'nothing'}"]
     if q["excerpt"]:
         lines.append(f"\nTheir words:\n{q['excerpt']}")
-    lines.append(f"\nNothing has been sent to them. Review: {s.public_url}/admin")
-    alert(conn, s, s.alert_val, f"{prefix}: {who}", "\n".join(lines), None, f"{prefix}-{inquiry_id}-{q['updated_at']}")
+    lines.append(f"\nNothing has been sent to them. Review: {closer.review_url(conn, s, inquiry_id)}")
+    state = alert(conn, s, s.alert_val, f"{prefix}: {who}", "\n".join(lines), None, f"{prefix}-{inquiry_id}-{q['updated_at']}", inquiry_id=inquiry_id)
+    if state != "duplicate":
+        closer.record_alert(conn, inquiry_id, state)
 
 
 def merge(conn: sqlite3.Connection, s: Settings, cfg: dict, inquiry_id: int, f: dict, *, clash_on: bool = False, busy=None) -> None:

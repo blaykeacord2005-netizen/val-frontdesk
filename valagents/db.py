@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS links(
 CREATE TABLE IF NOT EXISTS outbox(
   id INTEGER PRIMARY KEY, channel TEXT NOT NULL, to_addr TEXT, subject TEXT, body TEXT NOT NULL,
   booking_id INTEGER, kind TEXT NOT NULL, status TEXT NOT NULL, dedupe_key TEXT UNIQUE,
-  in_reply_to TEXT, created_at TEXT NOT NULL, decided_at TEXT, sent_at TEXT);
+  in_reply_to TEXT, created_at TEXT NOT NULL, decided_at TEXT, sent_at TEXT, inquiry_id INTEGER);
 CREATE TABLE IF NOT EXISTS documents(
   id INTEGER PRIMARY KEY, booking_id INTEGER NOT NULL, filename TEXT, sha256 TEXT, extracted TEXT,
   conflicts TEXT, method TEXT, created_at TEXT NOT NULL, UNIQUE(booking_id, sha256));
@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS inquiries(
   id INTEGER PRIMARY KEY, channel TEXT NOT NULL, status TEXT NOT NULL, from_name TEXT, from_email TEXT, from_phone TEXT,
   org TEXT, role TEXT, event_type TEXT, event_date TEXT, start_time TEXT, end_time TEXT, venue TEXT, campus TEXT, headcount INTEGER,
   missing TEXT NOT NULL DEFAULT '[]', notes TEXT, clash_status TEXT NOT NULL DEFAULT 'not_checked', subject TEXT, excerpt TEXT,
-  method TEXT, booking_id INTEGER, external_ref TEXT UNIQUE, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+  method TEXT, booking_id INTEGER, external_ref TEXT UNIQUE, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  received_at TEXT, alerted_at TEXT, alert_state TEXT, val_replied_at TEXT, reply_method TEXT);
 CREATE TABLE IF NOT EXISTS email_seen(
   message_id_hash TEXT PRIMARY KEY, result TEXT NOT NULL, inquiry_id INTEGER, message_id TEXT, at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS calls(
@@ -41,6 +42,19 @@ CREATE TABLE IF NOT EXISTS export_state(
 CREATE TABLE IF NOT EXISTS audit(
   id INTEGER PRIMARY KEY, at TEXT NOT NULL, actor TEXT, action TEXT NOT NULL, booking_id INTEGER, detail TEXT);
 """
+
+
+# Columns added after the first deploy. CREATE TABLE IF NOT EXISTS doesn't touch a table already on the volume.
+ADDED_COLUMNS = {"inquiries": ("received_at", "alerted_at", "alert_state", "val_replied_at", "reply_method"), "outbox": ("inquiry_id",)}
+
+
+def _add_new_columns(conn: sqlite3.Connection) -> None:
+    for table, columns in ADDED_COLUMNS.items():
+        have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for column in columns:
+            if column not in have:
+                kind = "INTEGER" if column == "inquiry_id" else "TEXT"
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
 
 
 def utcnow() -> datetime:
@@ -64,6 +78,7 @@ def connect(path: str) -> sqlite3.Connection:
     if path != ":memory:":
         conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(SCHEMA)
+    _add_new_columns(conn)
     return conn
 
 
